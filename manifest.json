@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "Overhwelmed",
+  "description": "Fjerner artikler som matcher ord du selv velger.",
+  "version": "1.0.0",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": ["*://*/*"],
+  "action": {
+    "default_title": "Overhwelmed",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

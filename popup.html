@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="no">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Overhwelmed</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Overhwelmed</h1>
+      <p>Legg til ord som chips. Artikler med treff i tittel/tekst blir fjernet.</p>
+      <div class="keyword-input-row">
+        <input id="keywordInput" type="text" placeholder="Skriv ord, f.eks. fotball" />
+        <button id="addKeyword" type="button" class="secondary">Legg til</button>
+      </div>
+      <div id="chipList" class="chip-list" aria-label="Blokkerte ord"></div>
+      <label class="toggle">
+        <input id="filterContent" type="checkbox" />
+        <span>Filtrer også artikler basert på innholdstekst</span>
+      </label>
+      <p id="status" role="status" aria-live="polite"></p>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>
