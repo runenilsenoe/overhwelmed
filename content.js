@@ -14,6 +14,7 @@ function normalize(text) {
     .replace(/[æ]/g, "ae")
     .replace(/[ø]/g, "o")
     .replace(/[å]/g, "a")
+    .replace(/[\/_-]+/g, " ")
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/\s+/g, " ")
@@ -89,7 +90,7 @@ function updateIfMatch(element, force = false) {
     return;
   }
 
-  if (contentText.length < 20 || contentText.length > 1800) {
+  if (contentText.length < 20 || contentText.length > 3000) {
     setElementHidden(element, false);
     element.dataset[PROCESSED_ATTR] = "1";
     return;
@@ -100,15 +101,53 @@ function updateIfMatch(element, force = false) {
 }
 
 function closestCard(anchor) {
-  return (
+  const cardMatch =
     anchor.closest("article") ||
     anchor.closest("li") ||
-    anchor.closest('[class*="teaser"]') ||
-    anchor.closest('[class*="article"]') ||
-    anchor.closest('[class*="card"]') ||
-    anchor.closest("section") ||
-    anchor.parentElement
-  );
+    anchor.closest('[class*="teaser" i]') ||
+    anchor.closest('[class*="article" i]') ||
+    anchor.closest('[class*="card" i]') ||
+    anchor.closest('[class*="story" i]') ||
+    anchor.closest('[class*="item" i]') ||
+    anchor.closest('[class*="sak" i]') ||
+    anchor.closest('[class*="promo" i]') ||
+    anchor.closest('[class*="tile" i]') ||
+    anchor.closest('[data-testid*="card" i], [data-testid*="teaser" i], [data-testid*="article" i]') ||
+    anchor.closest("section");
+
+  return cardMatch || anchor.parentElement;
+}
+
+function resolveBestCardFromLink(link) {
+  if (!link) {
+    return null;
+  }
+
+  let node = link;
+  let depth = 0;
+
+  while (node && node !== document.body && depth < 9) {
+    if (node.matches && node.matches("article, li")) {
+      return node;
+    }
+
+    if (
+      node.matches &&
+      node.matches(
+        '[class*="teaser" i], [class*="article" i], [class*="card" i], [class*="story" i], [class*="item" i], [class*="sak" i], [class*="promo" i], [class*="tile" i], [data-testid*="card" i], [data-testid*="teaser" i], [data-testid*="article" i]'
+      )
+    ) {
+      const textLength = normalize(node.innerText || "").length;
+      if (textLength >= 20 && textLength <= 3000) {
+        return node;
+      }
+    }
+
+    node = node.parentElement;
+    depth += 1;
+  }
+
+  return closestCard(link);
 }
 
 function getContentTarget() {
@@ -148,30 +187,56 @@ function updateContentTargetVisibility() {
   contentTarget.dataset[PROCESSED_ATTR] = "1";
 }
 
+function countContentCards(root) {
+  if (!root) {
+    return 0;
+  }
+
+  return root.querySelectorAll(
+    "article, li, [class*='teaser' i], [class*='article' i], [class*='card' i], [class*='story' i], [class*='item' i], [class*='sak' i], [class*='promo' i], [class*='tile' i], [data-testid*='card' i], [data-testid*='teaser' i], [data-testid*='article' i]"
+  ).length;
+}
+
 function resolveStripContainer(stripElement) {
   if (!stripElement) {
     return null;
   }
 
-  const container = stripElement.closest(
-    "section, article, [class*='module'], [class*='section'], [class*='container'], [class*='block']"
-  );
+  const isContainerCandidate = (element) => {
+    if (!element || !element.matches) {
+      return false;
+    }
 
-  if (!container || container === document.body || container === document.documentElement) {
-    return null;
+    return element.matches(
+      "section, article, ul, ol, [class*='module' i], [class*='section' i], [class*='container' i], [class*='block' i], [class*='package' i], [class*='stripe' i], [class*='shelf' i], [class*='feed' i], [class*='list' i]"
+    );
+  };
+
+  let node = stripElement;
+  let depth = 0;
+
+  while (node && node !== document.body && node !== document.documentElement && depth < 8) {
+    if (node.tagName === "MAIN") {
+      node = node.parentElement;
+      depth += 1;
+      continue;
+    }
+
+    if (isContainerCandidate(node)) {
+      const linkCount = node.querySelectorAll("a[href]").length;
+      const articleCount = node.querySelectorAll("article").length;
+      const cardCount = countContentCards(node);
+
+      if (linkCount >= 2 || articleCount > 0 || cardCount >= 2) {
+        return node;
+      }
+    }
+
+    node = node.parentElement;
+    depth += 1;
   }
 
-  if (container.tagName === "MAIN") {
-    return null;
-  }
-
-  const linkCount = container.querySelectorAll("a[href]").length;
-  const articleCount = container.querySelectorAll("article").length;
-  if (linkCount < 2 && articleCount === 0) {
-    return null;
-  }
-
-  return container;
+  return null;
 }
 
 function isLikelyNextStrip(element) {
@@ -185,6 +250,39 @@ function isLikelyNextStrip(element) {
     /stripe|header|heading|title|label|kicker|rubrikk|topic|tag/i.test(element.className || "") ||
     (text.length > 0 && text.length <= 60 && element.querySelectorAll("a[href]").length <= 2)
   );
+}
+
+function getStripLabelText(element) {
+  if (!element) {
+    return "";
+  }
+
+  const directText = normalize(
+    Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => node.textContent || "")
+      .join(" ")
+  );
+
+  const headingText = normalize(
+    element.querySelector("h1, h2, h3, h4, h5, h6, [role='heading']")?.innerText || ""
+  );
+
+  const linkedLabelText = normalize(element.querySelector("a[href]")?.innerText || "");
+  const ariaLabel = normalize(element.getAttribute("aria-label") || "");
+  const dataTitle = normalize(element.getAttribute("data-title") || "");
+
+  const candidates = [directText, headingText, linkedLabelText, ariaLabel, dataTitle].filter(Boolean);
+  if (candidates.length === 0) {
+    return "";
+  }
+
+  const shortCandidate = candidates.find((text) => text.length <= 160);
+  if (shortCandidate) {
+    return shortCandidate;
+  }
+
+  return candidates[0];
 }
 
 function hideFollowingSiblingsFrom(baseElement, shouldHide) {
@@ -203,20 +301,86 @@ function hideFollowingSiblingsFrom(baseElement, shouldHide) {
   }
 }
 
+function hideNestedCardsInScope(scopeElement, shouldHide) {
+  if (!scopeElement) {
+    return;
+  }
+
+  const cardSelectors = [
+    "article",
+    "li",
+    '[class*="teaser" i]',
+    '[class*="article" i]',
+    '[class*="card" i]',
+    '[class*="story" i]',
+    '[class*="item" i]',
+    '[class*="sak" i]',
+    '[class*="promo" i]',
+    '[class*="tile" i]',
+    '[data-testid*="card" i]',
+    '[data-testid*="teaser" i]',
+    '[data-testid*="article" i]'
+  ];
+
+  scopeElement.querySelectorAll(cardSelectors.join(",")).forEach((element) => {
+    const hasLink = Boolean(element.querySelector("a[href]"));
+    if (!hasLink) {
+      return;
+    }
+
+    if (/^(NAV|HEADER)$/i.test(element.tagName)) {
+      return;
+    }
+
+    setElementHidden(element, shouldHide);
+    element.dataset[PROCESSED_ATTR] = "1";
+  });
+}
+
+function getSectionKeywordSignal(section) {
+  if (!section) {
+    return "";
+  }
+
+  const signalParts = [];
+
+  signalParts.push(section.getAttribute("data-title") || "");
+  signalParts.push(section.id || "");
+  signalParts.push(section.className || "");
+
+  section.querySelectorAll("a[href]").forEach((link) => {
+    signalParts.push(link.getAttribute("href") || "");
+  });
+
+  section.querySelectorAll("script[src]").forEach((script) => {
+    signalParts.push(script.getAttribute("src") || "");
+  });
+
+  return normalize(signalParts.join(" "));
+}
+
 function updateTopStripSectionsVisibility(force = false) {
   const stripSelectors = [
     "h1",
     "h2",
     "h3",
+    "h4",
+    "h5",
+    "h6",
+    '[role="heading"]',
+    '[aria-level]',
     '[class*="kicker"]',
     '[class*="rubrikk"]',
     '[class*="topic"]',
     '[class*="tag"]',
+    '[class*="topstripe" i]',
     '[class*="stripe"]',
     '[class*="header"]',
     '[class*="heading"]',
     '[class*="title"]',
-    '[class*="label"]'
+    '[class*="label"]',
+    '[data-testid*="stripe" i]',
+    '[data-test-id*="stripe" i]'
   ];
 
   document.querySelectorAll(stripSelectors.join(",")).forEach((stripElement) => {
@@ -224,8 +388,8 @@ function updateTopStripSectionsVisibility(force = false) {
       return;
     }
 
-    const stripText = normalize(stripElement.innerText || "");
-    if (!stripText || stripText.length < 2 || stripText.length > 120) {
+    const stripText = getStripLabelText(stripElement) || normalize(stripElement.innerText || "");
+    if (!stripText || stripText.length < 2 || stripText.length > 240) {
       stripElement.dataset[PROCESSED_ATTR] = "1";
       return;
     }
@@ -239,6 +403,7 @@ function updateTopStripSectionsVisibility(force = false) {
     const container = resolveStripContainer(stripElement);
     if (container) {
       setElementHidden(container, true);
+      hideNestedCardsInScope(container, true);
       stripElement.dataset[PROCESSED_ATTR] = "1";
       return;
     }
@@ -247,6 +412,8 @@ function updateTopStripSectionsVisibility(force = false) {
     hideFollowingSiblingsFrom(stripElement, true);
     hideFollowingSiblingsFrom(stripElement.parentElement, true);
     hideFollowingSiblingsFrom(stripElement.parentElement?.parentElement, true);
+    hideNestedCardsInScope(stripElement.parentElement, true);
+    hideNestedCardsInScope(stripElement.parentElement?.parentElement, true);
 
     stripElement.dataset[PROCESSED_ATTR] = "1";
   });
@@ -260,11 +427,23 @@ function updateContainerPackageVisibility(force = false) {
       ""
     );
 
-    if (!titleText) {
+    const hasTopStripeWidget = Boolean(
+      section.querySelector(
+        '.vg-marius-toppstripe, vg-marius-toppstripe, [class*="topstripe" i], script[src*="toppstripe" i]'
+      )
+    );
+
+    const signalText = hasTopStripeWidget ? getSectionKeywordSignal(section) : "";
+
+    const shouldHide =
+      (titleText && matchesBlockedWord(titleText)) ||
+      (signalText && matchesBlockedWord(signalText));
+
+    if (!titleText && !signalText) {
       return;
     }
 
-    setElementHidden(section, matchesBlockedWord(titleText));
+    setElementHidden(section, shouldHide);
     section.dataset[PROCESSED_ATTR] = "1";
   });
 }
@@ -272,9 +451,18 @@ function updateContainerPackageVisibility(force = false) {
 function scanPage({ force = false } = {}) {
   const selectors = [
     "article",
-    '[class*="teaser"]',
-    '[class*="article"]',
-    '[class*="card"]'
+    "li",
+    '[class*="teaser" i]',
+    '[class*="article" i]',
+    '[class*="card" i]',
+    '[class*="story" i]',
+    '[class*="item" i]',
+    '[class*="sak" i]',
+    '[class*="promo" i]',
+    '[class*="tile" i]',
+    '[data-testid*="card" i]',
+    '[data-testid*="teaser" i]',
+    '[data-testid*="article" i]'
   ];
 
   if (force) {
@@ -304,13 +492,13 @@ function scanPage({ force = false } = {}) {
       return;
     }
 
-    const card = closestCard(link);
+    const card = resolveBestCardFromLink(link);
     if (!card || (!force && card.dataset[PROCESSED_ATTR] === "1")) {
       return;
     }
 
     const text = normalize(card.innerText || link.innerText || "");
-    if (text.length < 20 || text.length > 1800) {
+    if (text.length < 20 || text.length > 3000) {
       return;
     }
 
